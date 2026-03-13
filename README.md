@@ -26,14 +26,11 @@ The goal of this lab is to:
 
 ## Prerequisites
 
-Before starting, ensure you have the following:
-
 | Requirement | Notes |
 |---|---|
 | Azure subscription | With Contributor access to a resource group |
 | Microsoft Sentinel workspace | An existing Log Analytics workspace with Sentinel enabled |
 | Azure CLI | [Install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
-| GitHub CLI (`gh`) | Optional – only needed if re-pushing the zip |
 | Git | For cloning this repository |
 
 ---
@@ -50,24 +47,19 @@ cd Sentinel-CCF-Pull-Connector-Builder-Agent-Accelerator
 ## Step 2 – Log in to Azure
 
 ```bash
-az login --tenant <your-tenant-id>
+az login
 ```
 
-If the browser does not open automatically, use the device code flow:
+If MFA or a specific tenant is required, use the device code flow:
 
 ```bash
 az login --tenant <your-tenant-id> --use-device-code
 ```
 
-Set your target subscription:
+Set your target subscription and verify:
 
 ```bash
 az account set --subscription "<your-subscription-name-or-id>"
-```
-
-Verify you're on the right subscription:
-
-```bash
 az account show --query "{name:name, id:id}" -o table
 ```
 
@@ -79,27 +71,34 @@ az account show --query "{name:name, id:id}" -o table
 az group create --name connectorBuilderAgent --location eastus
 ```
 
-You can use any region. `eastus` is used as the default in this lab.
+You can use any region that supports Azure Functions Consumption plan.
 
 ---
 
-## Step 4 – Deploy the Function App
+## Step 4 – Get Your Log Analytics Workspace Resource ID
 
-Deploy the ARM template using the Azure CLI. You will need:
-
-- **`ApiKey`** – A strong secret string (≥ 8 characters). This will be the API key callers must include in the `X-API-Key` header. Save this value — you will need it when configuring the CCF connector.
-- **`AppInsightsWorkspaceResourceID`** – The full Resource ID of your Log Analytics workspace.
-
-### Get your workspace Resource ID
+You will need this when deploying the ARM template for Application Insights.
 
 ```bash
 az monitor log-analytics workspace show \
   --name <your-workspace-name> \
-  --resource-group <workspace-rg> \
+  --resource-group <workspace-resource-group> \
   --query id -o tsv
 ```
 
-### Run the deployment
+Copy the output — it looks like:
+```
+/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>
+```
+
+---
+
+## Step 5 – Deploy the Function App
+
+Run the ARM template deployment. Replace the placeholder values with your own:
+
+- **`<your-api-key>`** – A secret string (≥ 8 characters). Callers must supply this in the `X-API-Key` header. Save it — you will need it for CCF connector configuration.
+- **`<workspace-resource-id>`** – The value from Step 4.
 
 ```bash
 az deployment group create \
@@ -111,42 +110,30 @@ az deployment group create \
       AppInsightsWorkspaceResourceID="<workspace-resource-id>"
 ```
 
-> **PowerShell users:**
-> ```powershell
-> az deployment group create `
->   --name "NetworkLogAPI-Deploy" `
->   --resource-group connectorBuilderAgent `
->   --template-file azuredeploy_NetworkLogAPI.json `
->   --parameters `
->       ApiKey="<your-api-key>" `
->       AppInsightsWorkspaceResourceID="<workspace-resource-id>"
-> ```
+Deployment takes approximately 2–3 minutes. On success, the CLI outputs:
 
-Deployment takes approximately 2–3 minutes. When complete, the output will show:
-
-| Output | Description |
+| Output Key | Description |
 |---|---|
-| `FunctionAppName` | The deployed Function App name (with unique suffix) |
-| `FunctionAppUrl` | Base URL of the Function App |
+| `FunctionAppName` | Deployed Function App name (with unique suffix) |
+| `FunctionAppUrl` | Base URL |
 | `GetNetworkLogsEndpoint` | Full URL for the data endpoint |
 | `RefreshDataEndpoint` | Full URL for the refresh endpoint |
 
 ---
 
-## Step 5 – Verify the API is Working
+## Step 6 – Verify the API
 
-Test the `GetNetworkLogs` endpoint with your API key:
+The ARM template automatically configures CORS to allow `https://portal.azure.com`, so you can test the function directly from the Azure Portal (Function App → Functions → select a function → **Test/Run**) and view live logs in the browser via **Log stream**.
+
+Test the endpoint from the CLI using the Function App name and API key from Step 5:
 
 ```bash
-# Replace <FunctionAppName> and <your-api-key> with the values from the deployment output
 curl -s -H "X-API-Key: <your-api-key>" \
-  "https://<FunctionAppName>.azurewebsites.net/api/GetNetworkLogs?page=1&pageSize=5" | \
-  python -m json.tool
+  "https://<FunctionAppName>.azurewebsites.net/api/GetNetworkLogs?page=1&pageSize=5"
 ```
 
-You should receive a JSON response with 5 network log records and pagination metadata.
+You should receive a JSON response with 5 network log records and pagination metadata:
 
-**Expected response shape:**
 ```json
 {
   "status": "success",
@@ -162,31 +149,29 @@ You should receive a JSON response with 5 network log records and pagination met
 }
 ```
 
-If you receive a `401 Unauthorized`, double-check the `X-API-Key` header value matches what you set for `ApiKey` during deployment.
+A `401 Unauthorized` response means the `X-API-Key` value does not match what was set during deployment.
 
 ---
 
-## Step 6 – Review the API Documentation
+## Step 7 – Review the API Documentation
 
-Open [NetworkLogAPI_API_Documentation.md](./NetworkLogAPI_API_Documentation.md) for the full API reference.
+Open [NetworkLogAPI_API_Documentation.md](./NetworkLogAPI_API_Documentation.md).
 
-This document is specifically structured for CCF connector development. Key sections:
+This document is structured for CCF connector development and covers:
 
-- **Authentication** – `X-API-Key` header configuration
+- **Authentication** – `X-API-Key` header
 - **Pagination** – offset/page-based with `nextLink`
 - **Incremental Pull** – `since` query parameter for delta ingestion
-- **Data Schema** – full field-by-field breakdown with types and enum values
-- **CCF API Poller Connector Configuration** – ready-to-use CCF settings and a sample connector JSON snippet
+- **Data Schema** – all 20 fields with types and enum values
+- **CCF API Poller Configuration** – ready-to-use settings and sample connector JSON
 
 ---
 
-## Step 7 – Build Your CCF Connector
+## Step 8 – Build Your CCF Connector
 
-Using the API documentation from Step 6, configure a CCF API Poller connector in Microsoft Sentinel.
+Using the documentation from Step 7, configure a CCF API Poller connector in Microsoft Sentinel.
 
-Key CCF settings at a glance:
-
-| Setting | Value |
+| CCF Setting | Value |
 |---|---|
 | Auth Type | `APIKey` |
 | API Key Header | `X-API-Key` |
@@ -199,46 +184,43 @@ Key CCF settings at a glance:
 | Timestamp Field | `timestamp` |
 | Incremental Param | `since` |
 
-Refer to [NetworkLogAPI_API_Documentation.md – CCF section](./NetworkLogAPI_API_Documentation.md#ccf-api-poller-connector-configuration) for the full configuration with the sample connector JSON.
+See [NetworkLogAPI_API_Documentation.md – CCF section](./NetworkLogAPI_API_Documentation.md#ccf-api-poller-connector-configuration) for the full connector JSON snippet.
 
 ---
 
-## Step 8 – Refresh Data (Optional)
+## Step 9 – Refresh Data (Optional)
 
-Call the `RefreshData` endpoint to regenerate all 50 log records with fresh timestamps anchored to the current time:
+Regenerate all 50 records with fresh timestamps to simulate a new batch of events:
 
 ```bash
 curl -s -X POST -H "X-API-Key: <your-api-key>" \
   "https://<FunctionAppName>.azurewebsites.net/api/RefreshData"
 ```
 
-This is useful when re-running ingestion tests and you want to simulate a fresh batch of recent events.
-
 ---
 
 ## Updating the Function App Code
 
-If you modify `function_app.py`, you must rebuild the zip and redeploy:
+If you modify `function_app.py`, rebuild the zip, push it to GitHub, then restart the app:
 
-**PowerShell:**
-```powershell
-Compress-Archive -Path .\AzureFunctionNetworkLogAPI\* -DestinationPath .\AzureFunctionNetworkLogAPI\NetworkLogAPI.zip -Force
+```bash
+# Rebuild the zip (run from repo root)
+cd AzureFunctionNetworkLogAPI
+zip -r NetworkLogAPI.zip function_app.py host.json requirements.txt
+cd ..
+
+# Commit and push
 git add AzureFunctionNetworkLogAPI/NetworkLogAPI.zip
 git commit -m "Update function app package"
 git push
-```
 
-Then restart the Function App to pick up the new zip from GitHub:
-
-```bash
+# Restart the Function App to load the new package
 az webapp restart --name <FunctionAppName> --resource-group connectorBuilderAgent
 ```
 
 ---
 
 ## Cleaning Up
-
-To remove all deployed resources when you're done:
 
 ```bash
 az group delete --name connectorBuilderAgent --yes --no-wait
@@ -248,4 +230,4 @@ az group delete --name connectorBuilderAgent --yes --no-wait
 
 ## API Key Security Note
 
-The API key you set at deployment time is stored as an encrypted Azure App Setting (`NETWORK_LOG_API_KEY`). It is never logged or returned in any response. Store your key securely and treat it like a password.
+The API key is stored as an encrypted Azure App Setting (`NETWORK_LOG_API_KEY`). It is never logged or returned in any response. Treat it like a password.
