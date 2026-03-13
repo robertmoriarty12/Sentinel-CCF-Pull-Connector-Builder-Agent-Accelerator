@@ -244,7 +244,32 @@ Before deploying to Sentinel, you can validate that the connector can successful
 
 ---
 
-## Step 9 – Refresh Data (Optional)
+## Step 9 – Enable the Connector in Microsoft Sentinel
+
+After deploying the connector package (Step 8), activate it from within the Sentinel workspace:
+
+1. In the [Azure Portal](https://portal.azure.com), navigate to your **Microsoft Sentinel** workspace.
+2. Go to **Content Hub** → **Data Connectors** and find **NetworkLogAPI**.
+3. Click **Open connector page**.
+4. In the connector configuration panel, fill in the two required fields:
+   - **Base URL** – the Function App base URL from Step 5, e.g. `https://<FunctionAppName>.azurewebsites.net`
+   - **API Key** – the `ApiKey` value you set during deployment
+5. Click **Connect**.
+6. Use the **Test Connectivity** button to confirm a successful connection — a green status indicates the connector reached your API and validated the response correctly.
+
+Once connected, data will begin appearing in the `NetworkLogAPINetworkLogs_CL` table in Log Analytics. Allow **5–20 minutes** for the first records to land.
+
+You can verify ingestion with this query in Log Analytics:
+
+```kusto
+NetworkLogAPINetworkLogs_CL
+| sort by TimeGenerated desc
+| take 10
+```
+
+---
+
+## Step 10 – Refresh Data (Optional)
 
 Regenerate all 50 records with fresh timestamps to simulate a new batch of events:
 
