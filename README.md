@@ -205,6 +205,17 @@ These files are already committed to this repo under `sentinel-connectors/Networ
 4. The agent will walk through each step — polling config, table schema, DCR, and connector definition — generating and validating each file automatically.
 5. Review the generated files in your output folder before deploying.
 
+### Deploy the connector to a Sentinel workspace
+
+Once the connector files are generated, you can deploy directly from VS Code — no CLI required:
+
+1. In the VS Code Explorer, navigate to any file in `sentinel-connectors/NetworkLogAPI_CCF/`.
+2. Right-click the file and select **Deploy Connector** (provided by the Sentinel Connector Builder Agent).
+3. Follow the prompts to select your Azure subscription and target Sentinel workspace.
+4. The agent will deploy all four connector files (polling config, table, DCR, and connector definition) to the workspace in the correct order.
+
+> Once deployed, the connector will appear in Microsoft Sentinel under **Content Hub / Data Connectors**.
+
 ### Key connector settings (for reference)
 
 | CCF Setting | Value |
