@@ -216,6 +216,17 @@ Once the connector files are generated, you can deploy directly from VS Code —
 
 > Once deployed, the connector will appear in Microsoft Sentinel under **Content Hub / Data Connectors**.
 
+### Test the connector connection
+
+Before deploying to Sentinel, you can validate that the connector can successfully reach your API directly from VS Code:
+
+1. In the VS Code Explorer, right-click any file in `sentinel-connectors/NetworkLogAPI_CCF/`.
+2. Select **Test Connector** from the context menu.
+3. The agent reads your `NetworkLogAPI_PollingConfig.json` and establishes a live connection to the API using the auth, endpoint, pagination, and incremental pull settings defined by the connector builder agent.
+4. A test result will confirm whether the API responded successfully, returned data at the expected JSON path (`$.data`), and that pagination (`$.metadata.nextLink`) resolved correctly.
+
+> This is useful for catching config issues — wrong base URL, incorrect API key header name, or a mismatched events path — before the connector is deployed to a workspace.
+
 ### Key connector settings (for reference)
 
 | CCF Setting | Value |
