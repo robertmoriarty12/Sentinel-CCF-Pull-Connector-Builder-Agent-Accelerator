@@ -17,8 +17,14 @@ The goal of this lab is to:
 │   ├── host.json                # Azure Functions host configuration
 │   ├── requirements.txt         # Python dependencies
 │   └── NetworkLogAPI.zip        # Pre-built deployment package
+├── sentinel-connectors/
+│   └── NetworkLogAPI_CCF/       # Generated CCF connector package
+│       ├── NetworkLogAPI_PollingConfig.json    # API poller config (auth, pagination, DCR)
+│       ├── NetworkLogAPI_Table.json            # Custom Log Analytics table schema
+│       ├── NetworkLogAPI_DCR.json              # Data Collection Rule
+│       └── NetworkLogAPI_ConnectorDefinition.json  # Connector UI definition
 ├── azuredeploy_NetworkLogAPI.json   # ARM template – deploys the Function App
-├── NetworkLogAPI_API_Documentation.md  # Full API reference (use for CCF connector)
+├── NetworkLogAPI_API_Documentation.md  # Full API reference (input for CCF agent)
 └── README.md                    # This file – lab guide
 ```
 
@@ -167,24 +173,52 @@ This document is structured for CCF connector development and covers:
 
 ---
 
-## Step 8 – Build Your CCF Connector
+## Step 8 – Build the CCF Connector with the Sentinel Connector Builder Agent
 
-Using the documentation from Step 7, configure a CCF API Poller connector in Microsoft Sentinel.
+This lab uses the **Sentinel CCF Connector Builder Agent** — an AI agent in VS Code (via AI Toolkit) that reads your API documentation and automatically generates the full CCF connector package.
+
+### What the agent generates
+
+Pointing the agent at `NetworkLogAPI_API_Documentation.md` produces four files in `sentinel-connectors/NetworkLogAPI_CCF/`:
+
+| File | Purpose |
+|---|---|
+| `NetworkLogAPI_PollingConfig.json` | API poller config — auth, endpoint, pagination, incremental pull, DCR stream |
+| `NetworkLogAPI_Table.json` | Custom Log Analytics table schema (`NetworkLogAPINetworkLogs_CL`) |
+| `NetworkLogAPI_DCR.json` | Data Collection Rule — stream declarations, KQL transform, workspace destination |
+| `NetworkLogAPI_ConnectorDefinition.json` | Connector UI — title, description, graph queries, sample queries, instruction steps |
+
+These files are already committed to this repo under `sentinel-connectors/NetworkLogAPI_CCF/` as a reference output.
+
+### How to run the agent
+
+1. Open VS Code with the **AI Toolkit** extension installed.
+2. Open the Sentinel Connector Builder Agent.
+3. When prompted for API documentation, provide the URL or local path to the documentation file:
+   ```
+   https://github.com/robertmoriarty12/Sentinel-CCF-Pull-Connector-Builder-Agent-Accelerator/blob/main/NetworkLogAPI_API_Documentation.md
+   ```
+   Or use the local clone path:
+   ```
+   ./NetworkLogAPI_API_Documentation.md
+   ```
+4. The agent will walk through each step — polling config, table schema, DCR, and connector definition — generating and validating each file automatically.
+5. Review the generated files in your output folder before deploying.
+
+### Key connector settings (for reference)
 
 | CCF Setting | Value |
 |---|---|
 | Auth Type | `APIKey` |
 | API Key Header | `X-API-Key` |
 | Endpoint | `https://<FunctionAppName>.azurewebsites.net/api/GetNetworkLogs` |
-| HTTP Method | `GET` |
-| Pagination Type | `NextPageToken` |
-| Next Page Token Path | `$.metadata.nextLink` |
+| Pagination Type | `NextPageUrl` |
+| Next Page URL Path | `$.metadata.nextLink` |
 | Has Next Page Path | `$.metadata.hasNextPage` |
-| Events Array Path | `$.data[*]` |
+| Events Array Path | `$.data` |
 | Timestamp Field | `timestamp` |
 | Incremental Param | `since` |
-
-See [NetworkLogAPI_API_Documentation.md – CCF section](./NetworkLogAPI_API_Documentation.md#ccf-api-poller-connector-configuration) for the full connector JSON snippet.
+| Custom Table | `NetworkLogAPINetworkLogs_CL` |
 
 ---
 
