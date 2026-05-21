@@ -117,34 +117,17 @@
       }
     },
     {
-      "type": "Microsoft.Web/serverfarms",
-      "apiVersion": "2018-02-01",
-      "name": "[variables('FunctionName')]",
-      "location": "[parameters('FunctionAppLocation')]",
-      "sku": {
-        "name": "Y1",
-        "tier": "Dynamic"
-      },
-      "kind": "linux",
-      "properties": {
-        "name": "[variables('FunctionName')]",
-        "reserved": true
-      }
-    },
-    {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2018-11-01",
       "name": "[variables('FunctionName')]",
       "location": "[parameters('FunctionAppLocation')]",
       "dependsOn": [
-        "[resourceId('Microsoft.Web/serverfarms',          variables('FunctionName'))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('StorageAccountName'))]",
         "[resourceId('Microsoft.Insights/components',     variables('FunctionName'))]"
       ],
       "kind": "functionapp,linux",
       "properties": {
         "name": "[variables('FunctionName')]",
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('FunctionName'))]",
         "httpsOnly": true,
         "clientAffinityEnabled": true,
         "reserved": true,

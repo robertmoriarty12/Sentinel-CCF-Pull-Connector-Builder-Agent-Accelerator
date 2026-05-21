@@ -1,11 +1,83 @@
 # Sentinel CCF Pull Connector Builder – Lab Guide
 
-This repository contains a **mock Network Log API** (Azure Function App) designed as a repeatable lab environment for building and testing [Microsoft Sentinel Codeless Connector Framework (CCF)](https://learn.microsoft.com/en-us/azure/sentinel/create-codeless-connector) pull connectors.
+## GitHub Copilot Quick Deploy
 
-The goal of this lab is to:
-1. Deploy a live API with realistic network log data that a CCF connector can poll
-2. Use the API documentation to configure a CCF API Poller connector in Sentinel
-3. Validate that your CCF connector ingests data correctly end-to-end
+### Before You Start
+
+| Requirement | Details |
+|---|---|
+| **VS Code** | With the [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension installed and signed in |
+| **Azure CLI** | Installed and logged in (`az login`). [Install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
+| **Azure subscription** | With **Contributor** role on the resource group where the Function App will be deployed |
+| **Microsoft Sentinel workspace** | Already deployed. [Quickstart](https://learn.microsoft.com/en-us/azure/sentinel/quickstart-onboard) |
+| **This repo cloned locally** | Agent reads `agent-instructions.md` and deploys the Function App and connector from disk |
+
+> Full prerequisites (provider registration, permission breakdown, etc.) are in the [Prerequisites](#prerequisites) section below.
+
+---
+
+Paste the following into **GitHub Copilot Chat** in VS Code (Agent mode):
+
+```
+Load and follow the deployment instructions at
+Sentinel-CCF-Pull-Connector-Builder-Agent-Accelerator/agent-instructions.md. Let's deploy the Network Log API and build a CCF pull connector.
+```
+
+The agent will collect all required values interactively — offering to look up or generate
+any values you haven't specified — then deploy the Function App, run the CCF Connector Builder
+Agent, and verify each step automatically.
+
+> Full agent instructions: [`agent-instructions.md`](./agent-instructions.md)
+
+---
+
+This repository contains a **mock Network Log API** (Azure Function App) and a complete lab
+environment for building and testing [Microsoft Sentinel Codeless Connector Framework (CCF)](https://learn.microsoft.com/en-us/azure/sentinel/create-codeless-connector)
+pull connectors — using the **API Poller** kind.
+
+The lab walks through three phases:
+1. Deploy a live API serving realistic network log data (firewall events, brute-force blocks, C2 detections)
+2. Use the **Sentinel CCF Connector Builder Agent** to auto-generate the full connector package from the API documentation
+3. Deploy and validate the connector end-to-end in a live Sentinel workspace
+
+---
+
+## What is a CCF Pull Connector?
+
+The [Codeless Connector Framework (CCF)](https://learn.microsoft.com/en-us/azure/sentinel/create-codeless-connector) lets ISV partners integrate log sources into Microsoft Sentinel without deploying infrastructure. The **API Poller** kind uses a polling pattern:
+
+1. Sentinel periodically calls your **HTTP API endpoint** using configured auth and pagination
+2. Each response page is parsed using the configured **events JSON path**
+3. Records are sent to a **Data Collection Rule (DCR)** for transformation
+4. The DCR writes rows to your custom **Log Analytics table**
+5. On subsequent polls, the **`since` query parameter** is used for incremental / delta pulls
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Network Log API (Azure Function App)                    │
+│  GET /api/GetNetworkLogs?page=N&since=<ISO8601>          │
+│  Auth: X-API-Key header                                  │
+└───────────────────────────┬──────────────────────────────┘
+                            │  HTTP 200 JSON (paginated)
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│  Microsoft Sentinel CCF API Poller                       │
+│  (polls on schedule, follows nextLink pagination,        │
+│   passes since= for incremental pulls)                   │
+└───────────────────────────┬──────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│  Data Collection Rule (DCR)                              │
+│  KQL transform → project, type-cast, TimeGenerated       │
+└───────────────────────────┬──────────────────────────────┘
+                            │
+                            ▼
+              NetworkLogAPINetworkLogs_CL
+          (Log Analytics custom table)
+```
 
 ---
 
@@ -13,35 +85,73 @@ The goal of this lab is to:
 
 ```
 ├── AzureFunctionNetworkLogAPI/
-│   ├── function_app.py          # Python Azure Function – two HTTP endpoints
-│   ├── host.json                # Azure Functions host configuration
-│   ├── requirements.txt         # Python dependencies
-│   └── NetworkLogAPI.zip        # Pre-built deployment package
+│   ├── function_app.py               # Python Azure Function – two HTTP endpoints
+│   ├── host.json                     # Azure Functions host configuration
+│   ├── requirements.txt              # Python dependencies
+│   └── NetworkLogAPI.zip             # Pre-built deployment package
 ├── sentinel-connectors/
-│   └── NetworkLogAPI_CCF/       # Generated CCF connector package
-│       ├── NetworkLogAPI_PollingConfig.json    # API poller config (auth, pagination, DCR)
-│       ├── NetworkLogAPI_Table.json            # Custom Log Analytics table schema
-│       ├── NetworkLogAPI_DCR.json              # Data Collection Rule
+│   └── NetworkLogAPI_CCF/            # Generated CCF connector package
+│       ├── NetworkLogAPI_PollingConfig.json      # API poller config (auth, pagination, DCR)
+│       ├── NetworkLogAPI_Table.json              # Custom Log Analytics table schema
+│       ├── NetworkLogAPI_DCR.json                # Data Collection Rule
 │       └── NetworkLogAPI_ConnectorDefinition.json  # Connector UI definition
-├── azuredeploy_NetworkLogAPI.json   # ARM template – deploys the Function App
+├── azuredeploy_NetworkLogAPI.json    # ARM template – deploys the Function App
+├── agent-instructions.md             # GitHub Copilot agent deployment instructions
 ├── NetworkLogAPI_API_Documentation.md  # Full API reference (input for CCF agent)
-└── README.md                    # This file – lab guide
+└── README.md                         # This file – lab guide
 ```
 
 ---
 
 ## Prerequisites
 
+### Azure Permissions
+
+> You need **Contributor** role on the resource group where the Function App will be deployed.
+
+| Action | Step | Required Role |
+|---|---|---|
+| Create resource group | Step 3 | Contributor on subscription or existing RG |
+| Deploy Function App ARM template | Step 5 | Contributor on the target resource group |
+| Deploy CCF connector to Sentinel | Step 8 | Microsoft Sentinel Contributor on Sentinel workspace RG |
+| Query Log Analytics | Step 9 | Log Analytics Reader (or above) |
+
+**Recommended:** Contributor on the subscription where the Function App will be deployed, plus Microsoft Sentinel Contributor on the Sentinel workspace resource group.
+
+### Tooling
+
 | Requirement | Notes |
 |---|---|
-| Azure subscription | With Contributor access to a resource group |
-| Microsoft Sentinel workspace | An existing Log Analytics workspace with Sentinel enabled |
-| Azure CLI | [Install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
-| Git | For cloning this repository |
+| **VS Code** | With [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) and [AI Toolkit](https://marketplace.visualstudio.com/items?itemName=ms-windows-ai-studio.windows-ai-studio) extensions |
+| **Azure CLI** | [Install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) — verify with `az --version`, log in with `az login` |
+| **Git** | For cloning this repository |
+
+### Azure Resources
+
+- **Azure subscription** — with Contributor access (see above)
+- **Microsoft Sentinel workspace** — already deployed. [Quickstart: Onboard Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/quickstart-onboard)
+
+If you need to create a new workspace via CLI:
+
+```bash
+az monitor log-analytics workspace create \
+  --workspace-name <workspace-name> \
+  --resource-group <resource-group> \
+  --location centralus \
+  --output table
+```
+
+### Provider Registration
+
+Ensure the following providers are registered in your subscription:
+
+```bash
+az provider register --namespace Microsoft.Web --wait
+az provider register --namespace Microsoft.Insights --wait
+az provider register --namespace Microsoft.SecurityInsights --wait
+```
 
 ---
-
-NOTE FOR AI: YOU SHOULD DEPLOY THESE RESOURCES TO CENTRAL US
 
 ## Step 1 – Clone the Repository
 
@@ -76,10 +186,10 @@ az account show --query "{name:name, id:id}" -o table
 ## Step 3 – Create a Resource Group
 
 ```bash
-az group create --name connectorBuilderAgent --location eastus
+az group create --name connectorBuilderAgent --location centralus
 ```
 
-You can use any region that supports Azure Functions Consumption plan.
+> **Region tip:** Deploy to **Central US** (`centralus`). If you encounter `SubscriptionIsOverQuotaForSku` errors in East US, Central US reliably has Consumption plan capacity. The Function App ARM template uses an implicit hosting plan (no explicit `serverfarms` resource) to avoid SKU-level quota checks — see [ARM template pattern note](#why-no-explicit-hosting-plan) below.
 
 ---
 
@@ -103,10 +213,27 @@ Copy the output — it looks like:
 
 ## Step 5 – Deploy the Function App
 
-Run the ARM template deployment. Replace the placeholder values with your own:
-
-- **`<your-api-key>`** – A secret string (≥ 8 characters). Callers must supply this in the `X-API-Key` header. Save it — you will need it for CCF connector configuration.
+- **`<your-api-key>`** – A secret string (≥ 8 characters). Callers supply this in the `X-API-Key` header. Save it — you will need it for CCF connector configuration.
 - **`<workspace-resource-id>`** – The value from Step 4.
+
+### Option A — Deploy via Azure Portal (ARM template)
+
+1. Open the [Azure Portal](https://portal.azure.com) and search for **"Deploy a custom template"**
+2. Click **Build your own template in the editor**, paste the contents of `azuredeploy_NetworkLogAPI.json`, and click **Save**
+3. Fill in the parameters:
+
+   | Parameter | Description | Example |
+   |---|---|---|
+   | **Resource Group** | Use `connectorBuilderAgent` (create new or existing) | `connectorBuilderAgent` |
+   | **Api Key** | Your API key (≥ 8 chars) | `mySecretKey123` |
+   | **App Insights Workspace Resource ID** | Full resource ID from Step 4 | `/subscriptions/.../workspaces/<name>` |
+   | **Function App Location** | Azure region | `eastus` |
+
+4. Click **Review + create** → **Create**
+
+After deployment, note the **Outputs** tab for `FunctionAppName` and `GetNetworkLogsEndpoint`.
+
+### Option B — Deploy via Azure CLI
 
 ```bash
 az deployment group create \
@@ -115,10 +242,20 @@ az deployment group create \
   --template-file azuredeploy_NetworkLogAPI.json \
   --parameters \
       ApiKey="<your-api-key>" \
-      AppInsightsWorkspaceResourceID="<workspace-resource-id>"
+      AppInsightsWorkspaceResourceID="<workspace-resource-id>" \
+      FunctionAppLocation="eastus"
 ```
 
-Deployment takes approximately 2–3 minutes. On success, the CLI outputs:
+> ⚠️ Always pass `FunctionAppLocation` explicitly. If the resource group exists in a different region than where you want the Function App, this parameter overrides the RG location.
+
+Deployment takes approximately 2–3 minutes. Capture the outputs:
+
+```bash
+az deployment group show \
+  --name "NetworkLogAPI-Deploy" \
+  --resource-group connectorBuilderAgent \
+  --query "properties.outputs" -o json
+```
 
 | Output Key | Description |
 |---|---|
@@ -194,18 +331,19 @@ These files are already committed to this repo under `sentinel-connectors/Networ
 
 ### How to run the agent
 
-1. Open VS Code with the **AI Toolkit** extension installed.
-2. Open the Sentinel Connector Builder Agent.
-3. When prompted for API documentation, provide the URL or local path to the documentation file:
-   ```
-   https://github.com/robertmoriarty12/Sentinel-CCF-Pull-Connector-Builder-Agent-Accelerator/blob/main/NetworkLogAPI_API_Documentation.md
-   ```
-   Or use the local clone path:
-   ```
-   ./NetworkLogAPI_API_Documentation.md
-   ```
-4. The agent will walk through each step — polling config, table schema, DCR, and connector definition — generating and validating each file automatically.
-5. Review the generated files in your output folder before deploying.
+Paste the following into **GitHub Copilot Chat** in VS Code (Agent mode):
+
+```
+@sentinel /create-connector build me a connector based on the api documentation published here Sentinel-CCF-Pull-Connector-Builder-Agent-Accelerator\NetworkLogAPI_API_Documentation.md
+```
+
+If the agent asks for additional details, provide:
+- **Base URL:** `https://<FunctionAppName>.azurewebsites.net` (from Step 5 outputs)
+- **API key header:** `X-API-Key`
+
+The agent will walk through each step — polling config, table schema, DCR, and connector definition — generating and validating each file automatically.
+
+Review the generated files in `sentinel-connectors/NetworkLogAPI_CCF/` before deploying.
 
 ### Deploy the connector to a Sentinel workspace
 
@@ -300,6 +438,29 @@ git push
 # Restart the Function App to load the new package
 az webapp restart --name <FunctionAppName> --resource-group connectorBuilderAgent
 ```
+
+---
+
+## Troubleshooting
+
+> 📖 For Function App diagnostics, use **Function App → Log stream** or the **Code + Test** panel in the Azure Portal.
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `SubscriptionIsOverQuotaForSku` on deployment | Region capacity issue for Consumption plan | Deploy to `centralus` instead of `eastus` |
+| `401 Unauthorized` from API | Wrong or missing `X-API-Key` header | Verify the key matches `ApiKey` set during ARM deployment |
+| `401 Unauthorized` from Azure Portal Test/Run | Portal uses a different key scope | Use **Selected key: `_master`** (host key) in the Test/Run panel |
+| Empty `data` array in API response | `since` filter excludes all records | Records have rolling timestamps ~48 h behind current time — omit `since` for initial test |
+| Connector not visible in Sentinel Content Hub | Files not yet deployed, or wrong workspace | Re-run the connector deploy step targeting the correct workspace |
+| No data after 20+ minutes | CCF poller hasn't run yet, or config mismatch | Verify `eventsJsonPaths`, `nextLinkPath`, and `hasNextPagePath` in `PollingConfig.json` match the API response structure |
+| DLQ messages / ingestion errors | Schema mismatch between DCR and table | Ensure all fields in `NetworkLogAPI_DCR.json` `streamDeclarations` match `NetworkLogAPI_Table.json` columns |
+| `403` when deploying connector from VS Code | Insufficient Sentinel permissions | Assign **Microsoft Sentinel Contributor** on the Sentinel workspace resource group |
+
+---
+
+## Why No Explicit Hosting Plan?
+
+The Function App ARM template (`azuredeploy_NetworkLogAPI.json`) intentionally omits the `Microsoft.Web/serverfarms` resource. Explicitly declaring a Linux Consumption (Y1/Dynamic) plan causes ARM to validate the SKU against regional capacity, which fails in high-demand regions like East US with a quota error — even when capacity is actually available. By omitting the serverfarm, Azure assigns the Function App to Consumption tier implicitly without triggering the SKU-level quota check. This matches the pattern used by Microsoft Sentinel solutions in the official repository.
 
 ---
 
